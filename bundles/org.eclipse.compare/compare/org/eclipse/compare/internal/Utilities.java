@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2011 IBM Corporation and others.
+ * Copyright (c) 2000, 2013 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -31,6 +31,7 @@ import java.util.ResourceBundle;
 
 import org.eclipse.compare.CompareConfiguration;
 import org.eclipse.compare.CompareUI;
+import org.eclipse.compare.ICompareStrategy;
 import org.eclipse.compare.IEncodedStreamContentAccessor;
 import org.eclipse.compare.ISharedDocumentAdapter;
 import org.eclipse.compare.IStreamContentAccessor;
@@ -71,6 +72,7 @@ import org.eclipse.jface.operation.IRunnableContext;
 import org.eclipse.jface.operation.IRunnableWithProgress;
 import org.eclipse.jface.resource.ImageDescriptor;
 import org.eclipse.jface.text.IDocument;
+import org.eclipse.jface.text.IRegion;
 import org.eclipse.jface.util.IPropertyChangeListener;
 import org.eclipse.jface.util.PropertyChangeEvent;
 import org.eclipse.jface.viewers.ISelection;
@@ -140,6 +142,27 @@ public class Utilities {
 		return dflt;
 	}
 	
+	/**
+	 * Returns the active compare strategies for the compare configuration
+	 * @param cc
+	 * @return the active compare strategies
+	 */
+	public static ICompareStrategy[] getCompareStrategies(
+			CompareConfiguration cc) {
+		if (cc != null) {
+			Object value = cc
+					.getProperty(ChangeCompareStrategyPropertyAction.COMPARE_STRATEGIES);
+			if (value instanceof Map) {
+				Map strategiesMap = (Map) value;
+				return (ICompareStrategy[]) strategiesMap.values()
+						.toArray(
+								new ICompareStrategy[strategiesMap
+										.size()]);
+			}
+		}
+		return new ICompareStrategy[0];
+	}
+
 	public static void firePropertyChange(ListenerList listenerList, Object source, String property, Object old, Object newValue) {
 		PropertyChangeEvent event= new PropertyChangeEvent(source, property, old, newValue);
 		firePropertyChange(listenerList, event);
@@ -911,5 +934,47 @@ public class Utilities {
 			}
 		});
 		return result[0];
+	}
+	
+	/**
+	 * Applies the compare strategies to the lines of text taken from the specified contributors
+	 * @param line1
+	 * @param line1Contributor 
+	 * @param line2
+	 * @param line2Contributor 
+	 * @param strategies may be null
+	 * @return returns the result of applying the strategies to the line from the contributor
+	 */
+	public static String applyCompareStrategies(String line1, char line1Contributor, 
+			String line2, char line2Contributor, ICompareStrategy[] strategies) {
+		IRegion[][] ignoredRegions = new IRegion[strategies.length][];
+	 
+		HashMap input = new HashMap(4);
+		input.put(ICompareStrategy.THIS_LINE, line1);
+		input.put(ICompareStrategy.THIS_CONTRIBUTOR, new Character(line1Contributor));
+		input.put(ICompareStrategy.OTHER_LINE, line2);
+		input.put(ICompareStrategy.OTHER_CONTRIBUTOR, new Character(line2Contributor));
+		for (int i=0;i<strategies.length;i++) {
+			ignoredRegions[i] = strategies[i].ignoreRegions(input);
+		}		
+
+		boolean[] ignored = new boolean[line1.length()];
+		for (int j=0;j<ignoredRegions.length;j++) {
+			if (ignoredRegions[j]!=null) {
+				for (int k=0;k<ignoredRegions[j].length;k++) {
+					if (ignoredRegions[j][k]!=null)
+						for (int l=0;l<ignoredRegions[j][k].getLength();l++) {
+							ignored[ignoredRegions[j][k].getOffset()+l]=true;
+					}
+				}
+			}
+		}
+		StringBuffer buffer = new StringBuffer(line1.length());
+		for (int i=0;i<ignored.length;i++) {
+			if (!ignored[i]) {
+				buffer.append(line1.charAt(i));
+			}
+		}
+		return buffer.toString();
 	}
 }

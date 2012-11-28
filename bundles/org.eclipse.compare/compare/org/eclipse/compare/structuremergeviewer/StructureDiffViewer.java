@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * Copyright (c) 2000, 2013 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -475,8 +475,8 @@ public class StructureDiffViewer extends DiffTreeViewer {
 	
 				if (fDifferencer == null)
 					fDifferencer= new Differencer() {
-						protected boolean contentsEqual(Object o1, Object o2) {
-							return StructureDiffViewer.this.contentsEqual(o1, o2);
+						protected boolean contentsEqual(Object o1, char contributor1, Object o2, char contributor2) {
+							return StructureDiffViewer.this.contentsEqual(o1, contributor1, o2, contributor2);
 						}
 						protected Object visit(Object data, int result, Object ancestor, Object left, Object right) {
 							Object o= super.visit(data, result, ancestor, left, right);
@@ -608,11 +608,17 @@ public class StructureDiffViewer extends DiffTreeViewer {
 	 * Called from the difference engine.
 	 * Returns <code>null</code> if no structure creator has been set.
 	 */
-	private boolean contentsEqual(Object o1, Object o2) {
+	private boolean contentsEqual(Object o1, char contributor1, Object o2, char contributor2) {
 		if (fStructureCreator != null) {
-			boolean ignoreWhiteSpace= Utilities.getBoolean(getCompareConfiguration(), CompareConfiguration.IGNORE_WHITESPACE, false);		
-			String s1= fStructureCreator.getContents(o1, ignoreWhiteSpace);
-			String s2= fStructureCreator.getContents(o2, ignoreWhiteSpace);
+			boolean ignoreWhiteSpace= Utilities.getBoolean(getCompareConfiguration(), CompareConfiguration.IGNORE_WHITESPACE, false);
+			ICompareStrategy[] compareStrategies = Utilities.getCompareStrategies(getCompareConfiguration());
+			String s1, s2;
+			if (fStructureCreator instanceof IStructureCreator3) {
+				return ((IStructureCreator3)fStructureCreator).contentsEquals(o1, contributor1, o2, contributor2, ignoreWhiteSpace, compareStrategies);
+			} else {
+				s1= fStructureCreator.getContents(o1, ignoreWhiteSpace);
+				s2= fStructureCreator.getContents(o2, ignoreWhiteSpace);
+			}
 			if (s1 == null || s2 == null)
 				return false;
 			return s1.equals(s2);
@@ -629,6 +635,9 @@ public class StructureDiffViewer extends DiffTreeViewer {
 	protected void propertyChange(PropertyChangeEvent event) {
 		String key= event.getProperty();
 		if (key.equals(CompareConfiguration.IGNORE_WHITESPACE)) {
+			diff();
+		} else if (key.equals(ChangeCompareStrategyPropertyAction.COMPARE_STRATEGIES) &&
+				getCompareConfiguration().getProperty(ChangeCompareStrategyPropertyAction.COMPARE_STRATEGIES_INITIALIZING)==null) {
 			diff();
 		} else if (key.equals("ANCESTOR_STRUCTURE_REFRESH")) { //$NON-NLS-1$
 			fAncestorStructure.refresh(new NullProgressMonitor());

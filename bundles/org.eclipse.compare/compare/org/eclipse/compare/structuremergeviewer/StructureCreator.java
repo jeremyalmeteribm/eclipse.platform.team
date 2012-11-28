@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2006, 2009 IBM Corporation and others.
+ * Copyright (c) 2006, 2013 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,9 +10,13 @@
  *******************************************************************************/
 package org.eclipse.compare.structuremergeviewer;
 
+import java.io.BufferedReader;
+import java.io.StringReader;
 import java.io.UnsupportedEncodingException;
+import java.util.List;
 
 import org.eclipse.compare.CompareUI;
+import org.eclipse.compare.ICompareStrategy;
 import org.eclipse.compare.IEditableContent;
 import org.eclipse.compare.IEncodedStreamContentAccessor;
 import org.eclipse.compare.ISharedDocumentAdapter;
@@ -22,6 +26,7 @@ import org.eclipse.compare.SharedDocumentAdapter;
 import org.eclipse.compare.contentmergeviewer.IDocumentRange;
 import org.eclipse.compare.internal.CompareUIPlugin;
 import org.eclipse.compare.internal.Utilities;
+import org.eclipse.compare.internal.patch.LineReader;
 import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IProgressMonitor;
@@ -429,5 +434,89 @@ public abstract class StructureCreator implements IStructureCreator2 {
 			return getDisposable(node.getParentNode());
 		}
 		return null;
+	}
+	
+	/**
+	 * Applies the compare strategies to the line of text taken from the specified contributor
+	 * @param line1
+	 * @param contributor1 
+	 * @param line2
+	 * @param contributor2 
+	 * @param strategies may be null
+	 * @return returns the result of applying the strategies to the line from the contributor
+	 * @since 3.6
+	 */
+	public String applyCompareStrategies(String line1, char contributor1,
+			String line2, char contributor2, ICompareStrategy[] strategies) {
+		return Utilities.applyCompareStrategies(line1, contributor1, line2, contributor2, strategies);
+	}
+	
+	/**
+	 * Reusable implementation of <code>IStructureCreator3.contentsEquals()</code>
+	 * @param node1
+	 * @param contributor1
+	 * @param node2
+	 * @param contributor2
+	 * @param ignoreWhitespace
+	 * @param compareStrategies
+	 * @return returns whether the nodes are equal for comparison purposes
+	 * @since 3.6
+	 */
+	public boolean contentsEquals(Object node1, char contributor1,
+		Object node2, char contributor2, boolean ignoreWhitespace, 
+		ICompareStrategy[] compareStrategies) {
+		
+		List lines1 = LineReader.readLines(new BufferedReader(new StringReader(getContents(node1, false))));
+		List lines2 = LineReader.readLines(new BufferedReader(new StringReader(getContents(node2, false))));
+	
+		if (lines1.size()!=lines2.size())
+			return false;
+		
+		for (int i=0;i<lines1.size();i++) {
+			String s1 = (String)lines1.get(i);
+			String s2 = (String)lines2.get(i);
+			
+			if (compareStrategies != null && compareStrategies.length>0) {
+				s1 = applyCompareStrategies(s1, contributor1,
+						s2, contributor2, compareStrategies);
+				s2 = applyCompareStrategies(s2, contributor2,
+                        s1, contributor1, compareStrategies);
+			}
+			
+			if (ignoreWhitespace) {
+				int l1= s1.length();
+				int l2= s2.length();
+				int c1= 0, c2= 0;
+				int i1= 0, i2= 0;
+				
+				while (c1 != -1) {
+					
+					c1= -1;
+					while (i1 < l1) {
+						char c= s1.charAt(i1++);
+						if (! Character.isWhitespace(c)) {
+							c1= c;
+							break;
+						}
+					}
+					
+					c2= -1;
+					while (i2 < l2) {
+						char c= s2.charAt(i2++);
+						if (! Character.isWhitespace(c)) {
+							c2= c;
+							break;
+						}
+					}
+						
+					if (c1 != c2)
+						return false;
+				} 
+			} else if (!s1.equals(s2)) {
+				return false;
+			}
+		}				
+	
+		return true;
 	}
 }

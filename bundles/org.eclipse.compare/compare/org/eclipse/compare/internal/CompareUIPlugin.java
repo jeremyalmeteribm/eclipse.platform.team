@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2011 IBM Corporation and others.
+ * Copyright (c) 2000, 2013 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -16,6 +16,9 @@ import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Hashtable;
@@ -195,9 +198,12 @@ public final class CompareUIPlugin extends AbstractUIPlugin {
 	private static final String STRUCTURE_CREATOR_ID_ATTRIBUTE= "structureCreatorId"; //$NON-NLS-1$
 
 	private static final String VIEWER_TAG= "viewer"; //$NON-NLS-1$
+	private static final String STRATEGY_TAG = "strategy"; //$NON-NLS-1$
 	private static final String STRUCTURE_MERGE_VIEWER_EXTENSION_POINT= "structureMergeViewers"; //$NON-NLS-1$
 	private static final String STRUCTURE_MERGE_VIEWER_ID_ATTRIBUTE= "structureMergeViewerId"; //$NON-NLS-1$
 	private static final String CONTENT_MERGE_VIEWER_EXTENSION_POINT= "contentMergeViewers"; //$NON-NLS-1$
+	private static final String COMPARE_STRATEGIES_EXTENTION_POINT = "compareStrategies"; //$NON-NLS-1$
+	private static final String COMPARE_STRATEGY_ID_ATTRIBUTE = "strategyId"; //$NON-NLS-1$
 	private static final String CONTENT_MERGE_VIEWER_ID_ATTRIBUTE= "contentMergeViewerId"; //$NON-NLS-1$
 	private static final String CONTENT_VIEWER_EXTENSION_POINT= "contentViewers"; //$NON-NLS-1$
 	private static final String CONTENT_VIEWER_ID_ATTRIBUTE= "contentViewerId"; //$NON-NLS-1$
@@ -236,6 +242,7 @@ public final class CompareUIPlugin extends AbstractUIPlugin {
 	private CompareRegistry fStructureMergeViewers= new CompareRegistry();
 	private CompareRegistry fContentViewers= new CompareRegistry();
 	private CompareRegistry fContentMergeViewers= new CompareRegistry();
+	private CompareRegistry fCompareStrategies = new CompareRegistry();
 
 	private Map fStructureViewerAliases;
 	private CompareFilter fFilter;
@@ -391,7 +398,29 @@ public final class CompareUIPlugin extends AbstractUIPlugin {
 		    if (CONTENT_TYPE_BINDING.equals(element.getName()))
 		        fContentMergeViewers.createBinding(element, CONTENT_MERGE_VIEWER_ID_ATTRIBUTE);
 		}
-		
+
+		// collect all extensions that define the compare strategy extension point
+		elements = registry.getConfigurationElementsFor(PLUGIN_ID,
+				COMPARE_STRATEGIES_EXTENTION_POINT);
+		for (int i = 0; i < elements.length; i++) {
+			IConfigurationElement element = elements[i];
+			String name = element.getName();
+			if (!CONTENT_TYPE_BINDING.equals(name)) {
+				if (!STRATEGY_TAG.equals(name))
+					logErrorMessage(Utilities
+							.getFormattedString(
+									"CompareUIPlugin.unexpectedTag", name, STRATEGY_TAG)); //$NON-NLS-1$		            
+				fCompareStrategies.register(element,
+						new CompareStrategyDescriptor(element));
+			}
+		}
+		for (int i = 0; i < elements.length; i++) {
+			IConfigurationElement element = elements[i];
+			if (CONTENT_TYPE_BINDING.equals(element.getName()))
+				fCompareStrategies.createBinding(element,
+						COMPARE_STRATEGY_ID_ATTRIBUTE);
+		}
+
 		// collect all viewers which define the content viewer extension point
 		elements= registry.getConfigurationElementsFor(PLUGIN_ID, CONTENT_VIEWER_EXTENSION_POINT);
 		for (int i= 0; i < elements.length; i++) {
@@ -848,6 +877,113 @@ public final class CompareUIPlugin extends AbstractUIPlugin {
 			return null;
 		}
 		return getViewer(descriptors[0], oldViewer, parent, configuration);
+	}
+
+	public CompareStrategyDescriptor[] findCompareStrategies(Object in) {
+		Collection contentTypes = getContentTypes(in);
+		if (contentTypes == null) {
+			return new CompareStrategyDescriptor[0];
+		}
+		Set result = new LinkedHashSet();
+		Iterator ctIterator = contentTypes.iterator();
+		while (ctIterator.hasNext()) {
+			Object ct = ctIterator.next();
+			if (ct instanceof IContentType) {
+				List list = fCompareStrategies.searchAll((IContentType) ct);
+				if (list != null)
+					result.addAll(list);
+			} else if (ct instanceof String) {
+				List list = fCompareStrategies.searchAll((String) ct);
+				if (list != null)
+					result.addAll(list);
+			}
+		}
+
+		ArrayList list = new ArrayList(result);
+		Collections.sort(list, new Comparator(){
+			public int compare(Object left, Object right) {
+				return ((CompareStrategyDescriptor)left).getStrategyId().compareTo(
+						((CompareStrategyDescriptor)right).getStrategyId());
+			}			
+		});
+		
+		
+		return (CompareStrategyDescriptor[]) result
+				.toArray(new CompareStrategyDescriptor[result.size()]);
+	}
+
+	private Collection getContentTypes(Object in) {
+		Set result = new LinkedHashSet();
+		if (in instanceof IStreamContentAccessor) {
+			String type = ITypedElement.TEXT_TYPE;
+
+			if (in instanceof ITypedElement) {
+				ITypedElement tin = (ITypedElement) in;
+
+				IContentType ct = getContentType(tin);
+				if (ct != null) {
+					result.add(ct);
+				}
+
+				String ty = tin.getType();
+				if (ty != null)
+					type = ty;
+				result.add(type);
+			}
+			return result;
+		}
+
+		if (!(in instanceof ICompareInput))
+			return null;
+
+		ICompareInput input = (ICompareInput) in;
+
+		IContentType ctype = getCommonType(input);
+		if (ctype != null) {
+			result.add(ctype);
+		}
+
+		String[] types = getTypes(input);
+		String type = null;
+		if (isHomogenous(types))
+			type = types[0];
+
+		if (ITypedElement.FOLDER_TYPE.equals(type))
+			return null;
+
+		if (type == null) {
+			int n = 0;
+			for (int i = 0; i < types.length; i++)
+				if (!ITypedElement.UNKNOWN_TYPE.equals(types[i])) {
+					n++;
+					if (type == null)
+						type = types[i]; // remember the first known type
+				}
+			if (n > 1) // don't use the type if there were more than one
+				type = null;
+		}
+
+		if (type != null) {
+			result.add(type);
+		}
+
+		// fallback
+		String leftType = guessType(input.getLeft());
+		String rightType = guessType(input.getRight());
+
+		if (leftType != null || rightType != null) {
+			boolean right_text = rightType != null
+					&& ITypedElement.TEXT_TYPE.equals(rightType);
+			boolean left_text = leftType != null
+					&& ITypedElement.TEXT_TYPE.equals(leftType);
+			if ((rightType != null && !right_text)
+					|| (leftType != null && !left_text)) {
+				result.add(BINARY_TYPE);
+			}
+			result.add(ITypedElement.TEXT_TYPE);
+
+		}
+		return result;
 	}
 
 	public ViewerDescriptor[] findContentViewerDescriptor(Viewer oldViewer, Object in, CompareConfiguration cc) {

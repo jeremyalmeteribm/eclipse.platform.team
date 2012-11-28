@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * Copyright (c) 2000, 2013 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,9 +10,13 @@
  *******************************************************************************/
 package org.eclipse.compare.internal;
 
-import org.eclipse.jface.text.*;
+import org.eclipse.compare.ICompareStrategy;
 import org.eclipse.compare.contentmergeviewer.ITokenComparator;
 import org.eclipse.compare.rangedifferencer.IRangeComparator;
+import org.eclipse.core.internal.expressions.util.LRUCache;
+import org.eclipse.jface.text.BadLocationException;
+import org.eclipse.jface.text.IDocument;
+import org.eclipse.jface.text.IRegion;
 
 /**
  * Implements the <code>IRangeComparator</code> interface for lines in a document.
@@ -29,6 +33,9 @@ public class DocLineComparator implements ITokenComparator {
 	private int fLineCount;
 	private int fLength;
 	private boolean fIgnoreWhiteSpace;
+	private ICompareStrategy[] fCompareStrategies;
+	private char fContributor;
+	private LRUCache fCompareStrategyCache;
 
 	/**
 	 * Creates a <code>DocLineComparator</code> for the given document range.
@@ -40,9 +47,23 @@ public class DocLineComparator implements ITokenComparator {
 	 * @param ignoreWhiteSpace if <code>true</code> white space is ignored when comparing lines
 	 */
 	public DocLineComparator(IDocument document, IRegion region,
-			boolean ignoreWhiteSpace) {
+			boolean ignoreWhiteSpace, ICompareStrategy[] compareStrategies, char contributor) {
 		fDocument = document;
 		fIgnoreWhiteSpace = ignoreWhiteSpace;
+		fCompareStrategies = compareStrategies;
+		fContributor = contributor;
+		
+		boolean cacheIgnoredRegions = false;
+		if (compareStrategies!=null && compareStrategies.length>0) {
+			cacheIgnoredRegions = true;
+			for (int i=0;i<compareStrategies.length;i++) {
+				if (!compareStrategies[i].areIgnoredRegionsReusable()) {
+					cacheIgnoredRegions = false;
+					break;
+				}
+			}
+		}
+		fCompareStrategyCache = (cacheIgnoredRegions)?new LRUCache(1024):null;
 
 		fLineOffset = 0;
 		if (region != null) {
@@ -116,18 +137,15 @@ public class DocLineComparator implements ITokenComparator {
 			DocLineComparator other= (DocLineComparator) otherComparator;
 
 			if (fIgnoreWhiteSpace) {
-				String s1= extract(thisIndex);
-				String s2= other.extract(otherIndex);
-				//return s1.trim().equals(s2.trim());
-				return compare(s1, s2);
+				String[] linesToCompare = extract(thisIndex, otherIndex, other);
+				return compare(linesToCompare[0], linesToCompare[1]);
 			}
 
 			int tlen= getTokenLength(thisIndex);
 			int olen= other.getTokenLength(otherIndex);
-			if (tlen == olen) {
-				String s1= extract(thisIndex);
-				String s2= other.extract(otherIndex);
-				return s1.equals(s2);
+			if (tlen == olen || fCompareStrategies!=null) {
+				String[] linesToCompare = extract(thisIndex, otherIndex, other);
+				return linesToCompare[0].equals(linesToCompare[1]);
 			}
 		}
 		return false;
@@ -148,6 +166,39 @@ public class DocLineComparator implements ITokenComparator {
 	}
 		
 	//---- private methods
+	
+	private String[] extract(int thisIndex, int otherIndex, DocLineComparator other){
+	    
+		String[] extracts = new String[2];
+		if (fCompareStrategies!=null || fCompareStrategies.length>0) {
+			if (fCompareStrategyCache!=null) {
+			    extracts[0] = (String)fCompareStrategyCache.get(new Integer(thisIndex));
+				if (extracts[0] == null) {
+				    extracts[0] = Utilities.applyCompareStrategies(
+				            extract(thisIndex), fContributor, other.extract(otherIndex), other.fContributor, fCompareStrategies);
+				    fCompareStrategyCache.put(new Integer(thisIndex), extracts[0]);
+				}
+			    
+				extracts[1] = (String)other.fCompareStrategyCache.get(new Integer(otherIndex));
+			    if (extracts[1] == null) {
+                    extracts[1] = Utilities.applyCompareStrategies(
+                            other.extract(otherIndex), other.fContributor, extract(thisIndex), fContributor, fCompareStrategies);
+                    other.fCompareStrategyCache.put(new Integer(otherIndex), extracts[1]);
+			    }
+			} else {
+			    String thisLine = extract(thisIndex);
+			    String otherLine = other.extract(otherIndex);
+				extracts = new String[] {
+				        Utilities.applyCompareStrategies(thisLine, fContributor,  
+				                otherLine, other.fContributor, fCompareStrategies),
+				        Utilities.applyCompareStrategies(otherLine, other.fContributor,
+				                thisLine, fContributor, fCompareStrategies)};        
+			}			
+		} else {
+		    extracts = new String[]{extract(thisIndex), other.extract(otherIndex)};
+		}
+		return extracts;
+	}
 	
 	/**
 	 * Extract a single line from the underlying document without the line separator.

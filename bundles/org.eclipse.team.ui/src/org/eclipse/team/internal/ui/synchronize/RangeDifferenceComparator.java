@@ -13,8 +13,8 @@ package org.eclipse.team.internal.ui.synchronize;
 import java.io.IOException;
 import java.io.InputStream;
 
-import org.eclipse.compare.internal.DocLineComparator;
-import org.eclipse.compare.internal.Utilities;
+import org.eclipse.compare.ICompareStrategy;
+import org.eclipse.compare.internal.*;
 import org.eclipse.compare.rangedifferencer.RangeDifference;
 import org.eclipse.compare.rangedifferencer.RangeDifferencer;
 import org.eclipse.core.resources.ResourcesPlugin;
@@ -62,9 +62,9 @@ public abstract class RangeDifferenceComparator extends
 		IDocument lDoc = new Document(left);
 		IDocument rDoc = new Document(right);
 		DocLineComparator sleft = new DocLineComparator(lDoc, new Region(0,
-				lDoc.getLength()), shouldIgnoreWhitespace());
+				lDoc.getLength()), shouldIgnoreWhitespace(), new ICompareStrategy[0], MergeViewerContentProvider.LEFT_CONTRIBUTOR);
 		DocLineComparator sright = new DocLineComparator(rDoc, new Region(0,
-				rDoc.getLength()), shouldIgnoreWhitespace());
+				rDoc.getLength()), shouldIgnoreWhitespace(), new ICompareStrategy[0], MergeViewerContentProvider.RIGHT_CONTRIBUTOR);
 		final DocLineComparator sl = sleft, sr = sright;
 		RangeDifference[] ranges = RangeDifferencer.findRanges(monitor, sl, sr);
 		return compareRangeDifferences(ranges, lDoc, rDoc);

@@ -12,7 +12,9 @@ package org.eclipse.team.internal.ui.synchronize;
 
 import java.util.regex.Pattern;
 
+import org.eclipse.compare.ICompareStrategy;
 import org.eclipse.compare.internal.DocLineComparator;
+import org.eclipse.compare.internal.MergeViewerContentProvider;
 import org.eclipse.compare.rangedifferencer.RangeDifference;
 import org.eclipse.jface.text.*;
 
@@ -41,9 +43,9 @@ public class RegexDiffComparator extends RangeDifferenceComparator {
 					continue;
 
 				DocLineComparator sleft = new DocLineComparator(lDoc, null,
-						shouldIgnoreWhitespace());
+						shouldIgnoreWhitespace(), new ICompareStrategy[0], MergeViewerContentProvider.LEFT_CONTRIBUTOR);
 				DocLineComparator sright = new DocLineComparator(rDoc, null,
-						shouldIgnoreWhitespace());
+						shouldIgnoreWhitespace(), new ICompareStrategy[0], MergeViewerContentProvider.RIGHT_CONTRIBUTOR);
 
 				IRegion lRegion = lDoc.getLineInformation(diff.leftStart());
 				int leftEnd = sleft.getTokenStart(diff.leftStart()
