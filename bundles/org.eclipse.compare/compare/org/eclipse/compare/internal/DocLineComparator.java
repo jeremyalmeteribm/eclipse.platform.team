@@ -175,10 +175,7 @@ public class DocLineComparator implements ITokenComparator {
 
 			int tlen= getTokenLength(thisIndex);
 			int olen= other.getTokenLength(otherIndex);
-			if (fCompareFilters != null && fCompareFilters.length > 0) {
-				String[] linesToCompare = extract(thisIndex, otherIndex, other, true);
-				return linesToCompare[0].equals(linesToCompare[1]);
-			} else if (tlen == olen) {
+			if (tlen == olen) {
 				String[] linesToCompare = extract(thisIndex, otherIndex, other, false);
 				return linesToCompare[0].equals(linesToCompare[1]);
 			}
